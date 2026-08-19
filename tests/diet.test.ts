@@ -9,7 +9,7 @@ import {
   checkInput,
   parseCsv,
 } from '../src/index.js'
-import { PRESETS, resolveDietOptions, mergeToolArgs, DEFAULT_SETTINGS } from '../src/config.js'
+import { PRESETS, resolveDietOptions, mergeToolArgs, DEFAULT_SETTINGS, applyCompression, clampCompression, COMPRESSION_RANGES } from '../src/config.js'
 import { computeSaved, formatSaved, SavingsCounter } from '../src/diet-feedback.js'
 
 describe('diet-text', () => {
@@ -152,6 +152,48 @@ describe('config presets', () => {
     const light = dietText({ text: big }, resolveDietOptions({ preset: 'light' }))
     const aggressive = dietText({ text: big }, resolveDietOptions({ preset: 'aggressive' }))
     expect(Array.from(light.head).length).toBeGreaterThan(Array.from(aggressive.head).length)
+  })
+})
+
+describe('manual compression ratio (0-99)', () => {
+  it('clamps out-of-range values', () => {
+    expect(clampCompression(-5)).toBe(0)
+    expect(clampCompression(150)).toBe(99)
+    expect(clampCompression(42.6)).toBe(43)
+  })
+
+  it('higher compression keeps less content', () => {
+    const base = resolveDietOptions({ preset: 'balanced' })
+    const mild = applyCompression(10, { preset: 'balanced' }, base)
+    const max = applyCompression(99, { preset: 'balanced' }, base)
+    expect(mild.headChars).toBeGreaterThan(max.headChars)
+    expect(mild.maxSample).toBeGreaterThanOrEqual(max.maxSample)
+    expect(max.headChars).toBe(COMPRESSION_RANGES.headChars.min)
+  })
+
+  it('compression=1 keeps near-maximum content', () => {
+    const base = resolveDietOptions({ preset: 'balanced' })
+    const gentle = applyCompression(1, { preset: 'balanced' }, base)
+    expect(gentle.headChars).toBe(COMPRESSION_RANGES.headChars.max)
+  })
+
+  it('settings explicit overrides beat compression interpolation', () => {
+    // settings.headChars 显式 500 → resolve 后为 500，compression 不覆盖它
+    const settings = { preset: 'balanced' as const, headChars: 500 }
+    const base = resolveDietOptions(settings)
+    expect(base.headChars).toBe(500)
+    const opts = applyCompression(99, settings, base)
+    expect(opts.headChars).toBe(500)
+    // 未覆盖的字段被插值
+    expect(opts.tailChars).toBe(COMPRESSION_RANGES.tailChars.min)
+  })
+
+  it('compression interpolates linearly mid-range', () => {
+    const base = resolveDietOptions({ preset: 'balanced' })
+    const half = applyCompression(50, { preset: 'balanced' }, base)
+    const r = COMPRESSION_RANGES.headChars
+    const expected = Math.round(r.max - ((r.max - r.min) * (50 - 1)) / 98)
+    expect(half.headChars).toBe(expected)
   })
 })
 
