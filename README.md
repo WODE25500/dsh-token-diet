@@ -70,25 +70,45 @@ plugins:
 | `balanced`（默认） | 大多数任务，骨架完整且 token 明显减少 | 800 | 12 | 3 | 中 |
 | `aggressive` | 极端省 token（长会话、批量处理） | 300 | 6 | 2 | 强 |
 
-### 逐项覆盖（可选，覆盖档位默认值）
+### 手动压缩比例（`compression: 0-99`，不用档位直接指定省多少）
 
-`headChars` / `tailChars` / `maxKeywords` / `maxKeys` / `maxSample` / `maxDepth` / `maxSampleRows` / `maxColStats`
+在 settings 中设 `compression`，或每次调用时传 `compression` 参数，直接指定压缩强度：
+
+| 值 | 行为 |
+| --- | --- |
+| `0` | **不压缩**：返回原文基线（`mode: "raw"`），saved=0 —— 用于对比"不压缩是多少 token" |
+| `1` | 最保留：headChars 4000 / maxKeys 50（≈档位 light 之上） |
+| `50` | 中等：headChars 2050 / maxKeys 27 |
+| `99` | 极致：headChars 100 / maxKeys 3（≈档位 aggressive 之下） |
+
+8 个参数在区间内线性插值（`headChars 100-4000`、`maxKeys 3-50`、`maxSampleRows 1-20`…），
+settings 中已显式覆盖的参数不被比例覆盖。
 
 ```yaml
 # settings 文件示例
 token-diet:
-  preset: aggressive        # 切激进档
-  headChars: 500            # 但文本头部保留 500 字符（覆盖档位 300）
-  maxSampleRows: 8          # CSV 抽样行放宽到 8
+  compression: 80        # 全局手动压缩 80%（覆盖档位）
+  headChars: 500         # 但文本头部固定 500（显式覆盖 > 比例）
+```
+
+或调用时指定：`diet_text(text, compression: 90)`
+
+实测（同一份 8.2 万字符日志）：
+
+```
+compression=10% → headChars=3642 → 省 96.0%
+compression=50% → headChars=2050 → 省 97.7%
+compression=90% → headChars=458  → 省 99.4%
+compression=99% → headChars=100  → 省 99.8%
 ```
 
 ### 优先级链
 
 ```
-工具调用显式参数 > settings 逐项覆盖 > 档位默认值
+工具显式参数 > 工具 compression > settings compression > settings 逐项覆盖 > 档位默认值
 ```
 
-即：模型调用 `diet_csv(csv, maxSampleRows: 10)` 时，10 优先于 settings 与档位。
+即：模型调用 `diet_csv(csv, compression: 90, maxSampleRows: 10)` 时，10 优先于压缩比例；压缩比例优先于 settings 档位。
 
 ## 省多少？
 
