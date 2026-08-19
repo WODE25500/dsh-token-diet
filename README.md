@@ -1,10 +1,28 @@
 # dsh-token-diet
 
-DeepSeek Harness 的**省 token 工具集** —— 4 个纯函数瘦身工具，让模型在把大内容塞进上下文**之前**先做"结构保留摘要"，从源头省 token。零依赖。**压缩比例可配置**：三档预设一键切换 + 逐项参数覆盖。
+DeepSeek Harness 的**省 token 工具集** —— 纯函数瘦身工具，让模型在把大内容塞进上下文**之前**先做"结构保留摘要"，从源头省 token。零依赖。**压缩比例可配置**（三档预设 + 逐项覆盖）+ **真实节约反馈**（每次调用返回省了多少 token）。
 
 > **和现有方案的区别**：官方 `dsh-compaction-tool-result-pruner` 是**事后**裁剪（compaction 触发时才修剪历史结果）；`dsh-context` / `dsh-budget` 是**监控**；本插件是**事前主动瘦身**——信息骨架完整保留，token 消耗小一个量级，且不丢关键结构。
 
-## 注册工具
+## 两个版本
+
+| 版本 | 入口 | 工具 | 特点 |
+| --- | --- | --- | --- |
+| **完整版**（默认） | `dsh-token-diet` | `diet_text` / `diet_json` / `diet_csv` / `diet_estimate` / `diet_stats` | settings 三档预设 + 逐项覆盖 |
+| **lite 版** | `dsh-token-diet/lite` | `diet`（action: text/json/csv）+ `diet_stats` | 单工具、无 settings 依赖、schema 更省 |
+
+```yaml
+# 完整版
+plugins:
+  - id: tool-token-diet
+    name: 'dsh-token-diet'
+# lite 版
+plugins:
+  - id: tool-token-diet-lite
+    name: 'dsh-token-diet/lite'
+```
+
+## 注册工具（完整版）
 
 | 工具 | 功能 | 典型场景 |
 | --- | --- | --- |
@@ -12,6 +30,33 @@ DeepSeek Harness 的**省 token 工具集** —— 4 个纯函数瘦身工具，
 | `diet_json` | 大 JSON → key 骨架 + 类型/键数/数组长度 + 抽样值 | API 响应、配置文件 |
 | `diet_csv` | 大 CSV → 列类型/distinct/min/max/avg + 抽样行 | 数据文件、报表导出 |
 | `diet_estimate` | 任意文本 → token 估算 + 进上下文建议 | 决定"读全文 / 瘦身 / 跳过" |
+| `diet_stats` | 本次进程累计节约统计（跨调用汇总） | 汇报会话总共省了多少 |
+
+## 节约反馈（每次调用都看得到）
+
+每个瘦身工具（`diet_text/json/csv`）的返回结果都会附带 `saved` 字段，让用户**真实看到省了多少**：
+
+```json
+{
+  "kind": "csv",
+  "rowCount": 8000,
+  "colStats": [...],
+  "saved": {
+    "originalTokens": 38563,
+    "outputTokens": 196,
+    "savedTokens": 38367,
+    "savedPercent": 99.5
+  }
+}
+```
+
+- `originalTokens`：原始内容的估算 token 数
+- `outputTokens`：瘦身结果的估算 token 数（含反馈字段）
+- `savedTokens` / `savedPercent`：本次调用节约量（绝对值 + 百分比）
+
+调用 `diet_stats` 可查看累计：`{"calls":3,"originalTotal":110272,"outputTotal":1102,"savedTotal":109170,"savedPercent":99}`
+
+> 实测：45,400 token 的日志 → 705 token（省 98.4%）；38,563 token 的 CSV → 196 token（省 99.5%）；26,309 token 的 JSON → 201 token（省 99.2%）。token 数为估算值（CJK ≈1.1 token/字，Latin ≈0.25 token/字符），用于决策与汇报足够准确。
 
 ## 压缩比例配置（settings）
 
