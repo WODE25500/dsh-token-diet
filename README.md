@@ -1,6 +1,6 @@
 # dsh-token-diet
 
-DeepSeek Harness 的**省 token 工具集** —— 4 个纯函数瘦身工具，让模型在把大内容塞进上下文**之前**先做"结构保留摘要"，从源头省 token。零依赖。
+DeepSeek Harness 的**省 token 工具集** —— 4 个纯函数瘦身工具，让模型在把大内容塞进上下文**之前**先做"结构保留摘要"，从源头省 token。零依赖。**压缩比例可配置**：三档预设一键切换 + 逐项参数覆盖。
 
 > **和现有方案的区别**：官方 `dsh-compaction-tool-result-pruner` 是**事后**裁剪（compaction 触发时才修剪历史结果）；`dsh-context` / `dsh-budget` 是**监控**；本插件是**事前主动瘦身**——信息骨架完整保留，token 消耗小一个量级，且不丢关键结构。
 
@@ -12,6 +12,38 @@ DeepSeek Harness 的**省 token 工具集** —— 4 个纯函数瘦身工具，
 | `diet_json` | 大 JSON → key 骨架 + 类型/键数/数组长度 + 抽样值 | API 响应、配置文件 |
 | `diet_csv` | 大 CSV → 列类型/distinct/min/max/avg + 抽样行 | 数据文件、报表导出 |
 | `diet_estimate` | 任意文本 → token 估算 + 进上下文建议 | 决定"读全文 / 瘦身 / 跳过" |
+
+## 压缩比例配置（settings）
+
+插件注册 settings 命名空间 `token-diet`，在 Web UI 设置面板或 settings 文件中调整：
+
+### 三档预设（`preset`，一键切换）
+
+| 档位 | 适用场景 | headChars | maxKeys | maxSample | 压缩强度 |
+| --- | --- | --- | --- | --- | --- |
+| `light` | 需要细节的任务（代码评审、精确引用） | 2000 | 25 | 6 | 轻 |
+| `balanced`（默认） | 大多数任务，骨架完整且 token 明显减少 | 800 | 12 | 3 | 中 |
+| `aggressive` | 极端省 token（长会话、批量处理） | 300 | 6 | 2 | 强 |
+
+### 逐项覆盖（可选，覆盖档位默认值）
+
+`headChars` / `tailChars` / `maxKeywords` / `maxKeys` / `maxSample` / `maxDepth` / `maxSampleRows` / `maxColStats`
+
+```yaml
+# settings 文件示例
+token-diet:
+  preset: aggressive        # 切激进档
+  headChars: 500            # 但文本头部保留 500 字符（覆盖档位 300）
+  maxSampleRows: 8          # CSV 抽样行放宽到 8
+```
+
+### 优先级链
+
+```
+工具调用显式参数 > settings 逐项覆盖 > 档位默认值
+```
+
+即：模型调用 `diet_csv(csv, maxSampleRows: 10)` 时，10 优先于 settings 与档位。
 
 ## 省多少？
 
