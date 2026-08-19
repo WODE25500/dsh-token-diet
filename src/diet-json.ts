@@ -96,12 +96,28 @@ function maxArraySize(node: unknown, depth = 0, maxDepth = 8): number {
   return 0
 }
 
-/** 大 JSON → 结构摘要。 */
-export function dietJson(args: DietJsonArgs): DietJsonResult {
+/** 大 JSON → 结构摘要。
+ * 优先级：args 显式参数 > base（settings 档位/覆盖）> 函数内默认值。 */
+export function dietJson(
+  args: DietJsonArgs,
+  base: Partial<Pick<DietJsonArgs, 'maxKeys' | 'maxSample' | 'maxDepth'>> = {},
+): DietJsonResult {
   const raw = checkInput(args.json, 'json')
-  const maxKeys = typeof args.maxKeys === 'number' ? Math.max(1, Math.min(args.maxKeys, 50)) : 12
-  const maxSample = typeof args.maxSample === 'number' ? Math.max(1, Math.min(args.maxSample, 10)) : 3
-  const maxDepth = typeof args.maxDepth === 'number' ? Math.max(1, Math.min(args.maxDepth, 8)) : 4
+  const maxKeys = typeof args.maxKeys === 'number'
+    ? Math.max(1, Math.min(args.maxKeys, 50))
+    : typeof base.maxKeys === 'number'
+      ? Math.max(1, Math.min(base.maxKeys, 50))
+      : 12
+  const maxSample = typeof args.maxSample === 'number'
+    ? Math.max(1, Math.min(args.maxSample, 10))
+    : typeof base.maxSample === 'number'
+      ? Math.max(1, Math.min(base.maxSample, 10))
+      : 3
+  const maxDepth = typeof args.maxDepth === 'number'
+    ? Math.max(1, Math.min(args.maxDepth, 8))
+    : typeof base.maxDepth === 'number'
+      ? Math.max(1, Math.min(base.maxDepth, 8))
+      : 4
 
   let node: unknown
   try {
