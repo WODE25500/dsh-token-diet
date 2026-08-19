@@ -1,0 +1,4 @@
+# dsh bundle patch: inserts the LITE entry (single `diet` tool + diet_stats, no settings dependency).
+- insert:
+    - id: tool-token-diet-lite
+      name: 'dsh-token-diet/lite'
