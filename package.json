@@ -1,7 +1,7 @@
 {
   "name": "dsh-token-diet",
-  "version": "0.2.0",
-  "description": "DSH token-saving toolkit: proactively slim large text/JSON/CSV before they enter context (diet_text / diet_json / diet_csv / diet_estimate). Configurable compression presets (light/balanced/aggressive) + per-field overrides via settings. Zero-dependency pure functions.",
+  "version": "0.3.0",
+  "description": "DSH token-saving toolkit: proactively slim large text/JSON/CSV before they enter context (diet_text / diet_json / diet_csv / diet_estimate / diet_stats). Configurable compression presets (light/balanced/aggressive) + per-field overrides via settings + real saved-token feedback. Lite entry (/lite) ships a single diet tool with no settings dependency.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -31,13 +31,19 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./lite": {
+      "types": "./lib/lite.d.ts",
+      "default": "./lib/lite.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./cordis.lite.patch.yml": "./cordis.lite.patch.yml",
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
     "src",
     "cordis.patch.yml",
+    "cordis.lite.patch.yml",
     "README.md",
     "LICENSE"
   ],
