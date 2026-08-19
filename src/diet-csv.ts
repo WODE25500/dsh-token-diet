@@ -101,12 +101,24 @@ function inferType(v: string): string {
   return 'string'
 }
 
-/** 大 CSV → 列统计 + 抽样行。 */
-export function dietCsv(args: DietCsvArgs): DietCsvResult {
+/** 大 CSV → 列统计 + 抽样行。
+ * 优先级：args 显式参数 > base（settings 档位/覆盖）> 函数内默认值。 */
+export function dietCsv(
+  args: DietCsvArgs,
+  base: Partial<Pick<DietCsvArgs, 'maxSampleRows' | 'maxColStats'>> = {},
+): DietCsvResult {
   const raw = checkInput(args.csv, 'csv')
   const delimiter = typeof args.delimiter === 'string' ? args.delimiter : ','
-  const maxSampleRows = typeof args.maxSampleRows === 'number' ? Math.max(1, Math.min(args.maxSampleRows, 20)) : 5
-  const maxColStats = typeof args.maxColStats === 'number' ? Math.max(1, Math.min(args.maxColStats, 30)) : 20
+  const maxSampleRows = typeof args.maxSampleRows === 'number'
+    ? Math.max(1, Math.min(args.maxSampleRows, 20))
+    : typeof base.maxSampleRows === 'number'
+      ? Math.max(1, Math.min(base.maxSampleRows, 20))
+      : 5
+  const maxColStats = typeof args.maxColStats === 'number'
+    ? Math.max(1, Math.min(args.maxColStats, 30))
+    : typeof base.maxColStats === 'number'
+      ? Math.max(1, Math.min(base.maxColStats, 30))
+      : 20
 
   const rows = parseCsv(raw, delimiter)
   if (rows.length === 0) {
