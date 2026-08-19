@@ -32,7 +32,10 @@ import { dietCsv } from './diet-csv.js'
 import {
   DEFAULT_SETTINGS,
   resolveDietOptions,
+  applyCompression,
+  clampCompression,
   type DietSettings,
+  type DietParams,
 } from './config.js'
 import { computeSaved, SavingsCounter } from './diet-feedback.js'
 
@@ -46,7 +49,7 @@ export {
 } from './diet-text.js'
 export { dietJson } from './diet-json.js'
 export { dietCsv, parseCsv } from './diet-csv.js'
-export { PRESETS, resolveDietOptions, DEFAULT_SETTINGS, type DietSettings, type DietPreset } from './config.js'
+export { PRESETS, resolveDietOptions, applyCompression, clampCompression, DEFAULT_SETTINGS, type DietSettings, type DietPreset } from './config.js'
 export { computeSaved, formatSaved, SavingsCounter, type SavedStat } from './diet-feedback.js'
 
 export const name = 'dsh-token-diet'
@@ -55,13 +58,14 @@ export const inject = ['tools']
 /** settings 命名空间：token-diet */
 const NS = settingsNamespace('token-diet')
 
-/** settings schema（三档预设 + 逐项覆盖，全部可选）。 */
+/** settings schema（三档预设 + 手动压缩比例 + 逐项覆盖，全部可选）。 */
 const DietSettingsSchema = Schema.object({
   preset: Schema.union([
     Schema.const('light'),
     Schema.const('balanced'),
     Schema.const('aggressive'),
   ]).default('balanced'),
+  compression: Schema.number().min(0).max(99).description('手动压缩比例 0-99%（0=不压缩返回原文，99=极致压缩；覆盖档位）'),
   headChars: Schema.number().min(0).max(4000).description('文本摘要保留头部字符数（覆盖档位）'),
   tailChars: Schema.number().min(0).max(2000).description('文本摘要保留尾部字符数（覆盖档位）'),
   maxKeywords: Schema.number().min(1).max(30).description('文本摘要高频词数量（覆盖档位）'),
@@ -74,6 +78,39 @@ const DietSettingsSchema = Schema.object({
 
 /** 进程内累计节约统计（diet_stats 工具与 lite 版共享）。 */
 export const savingsCounter = new SavingsCounter()
+
+/**
+ * 解析一次调用的实际参数：
+ * 优先级：工具显式参数 > 工具 compression > settings compression > settings 覆盖 > 档位。
+ * 返回 { opts, raw }：raw=true 表示 compression=0（调用方应返回原文基线）。
+ */
+function resolveCall(
+  settings: DietSettings,
+  args: Record<string, unknown>,
+): { opts: DietParams; raw: boolean } {
+  const comp =
+    typeof args.compression === 'number'
+      ? clampCompression(args.compression)
+      : settings.compression !== undefined
+        ? clampCompression(settings.compression)
+        : undefined
+  if (comp === 0) return { opts: resolveDietOptions(settings), raw: true }
+  let opts = resolveDietOptions(settings)
+  if (comp !== undefined) opts = applyCompression(comp, settings, opts)
+  return { opts, raw: false }
+}
+
+/** compression=0 的原文基线结果。 */
+function rawBaseline(kind: string, text: string, chars: number, tokens: number) {
+  return JSON.stringify({
+    kind,
+    mode: 'raw',
+    note: 'compression=0：未压缩，返回原文基线',
+    chars,
+    tokens,
+    saved: { originalTokens: tokens, outputTokens: tokens, savedTokens: 0, savedPercent: 0 },
+  })
+}
 
 export function apply(ctx: Context): void {
   // settings 服务（可选）：存在则注册命名空间并读取档位/覆盖
@@ -109,17 +146,21 @@ export function apply(ctx: Context): void {
           required: true,
           description: 'The text content to summarize (up to 512KB).',
         },
+        compression: {
+          type: 'integer',
+          description: 'Manual compression ratio 0-99 (0 = no compression, return raw baseline; 99 = max compression). Overrides preset/overrides.',
+        },
         headChars: {
           type: 'integer',
-          description: 'Leading chars to keep (override; default depends on preset).',
+          description: 'Leading chars to keep (override; default depends on preset/compression).',
         },
         tailChars: {
           type: 'integer',
-          description: 'Trailing chars to keep (override; default depends on preset).',
+          description: 'Trailing chars to keep (override; default depends on preset/compression).',
         },
         maxKeywords: {
           type: 'integer',
-          description: 'Max high-frequency keywords (override; default depends on preset).',
+          description: 'Max high-frequency keywords (override; default depends on preset/compression).',
         },
       },
       output: {
@@ -127,7 +168,12 @@ export function apply(ctx: Context): void {
         render: (_args, value) => [{ type: 'text', text: value }],
       },
       execute: async (args) => {
-        const opts = resolveDietOptions(getSettings())
+        const settings = getSettings()
+        const { opts, raw } = resolveCall(settings, args)
+        if (raw && typeof args.text === 'string') {
+          const tokens = estimateTokens(args.text)
+          return rawBaseline('text', args.text, Array.from(args.text).length, tokens)
+        }
         const result = dietText(args, opts)
         const out = JSON.stringify(result)
         const saved = computeSaved(result.tokens, out)
@@ -152,17 +198,21 @@ export function apply(ctx: Context): void {
           required: true,
           description: 'The JSON text to summarize (up to 512KB).',
         },
+        compression: {
+          type: 'integer',
+          description: 'Manual compression ratio 0-99 (0 = no compression, return raw baseline; 99 = max compression). Overrides preset/overrides.',
+        },
         maxKeys: {
           type: 'integer',
-          description: 'Max keys shown per object (override; default depends on preset).',
+          description: 'Max keys shown per object (override; default depends on preset/compression).',
         },
         maxSample: {
           type: 'integer',
-          description: 'Max array samples shown (override; default depends on preset).',
+          description: 'Max array samples shown (override; default depends on preset/compression).',
         },
         maxDepth: {
           type: 'integer',
-          description: 'Max nesting depth summarized (override; default depends on preset).',
+          description: 'Max nesting depth summarized (override; default depends on preset/compression).',
         },
       },
       output: {
@@ -170,7 +220,12 @@ export function apply(ctx: Context): void {
         render: (_args, value) => [{ type: 'text', text: value }],
       },
       execute: async (args) => {
-        const opts = resolveDietOptions(getSettings())
+        const settings = getSettings()
+        const { opts, raw } = resolveCall(settings, args)
+        if (raw && typeof args.json === 'string') {
+          const tokens = estimateTokens(args.json)
+          return rawBaseline('json', args.json, args.json.length, tokens)
+        }
         const result = dietJson(args, opts)
         const out = JSON.stringify(result)
         const saved = computeSaved(result.tokens, out)
@@ -195,17 +250,21 @@ export function apply(ctx: Context): void {
           required: true,
           description: 'The CSV text to summarize (RFC 4180; up to 512KB).',
         },
+        compression: {
+          type: 'integer',
+          description: 'Manual compression ratio 0-99 (0 = no compression, return raw baseline; 99 = max compression). Overrides preset/overrides.',
+        },
         delimiter: {
           type: 'string',
           description: 'Column delimiter: "," (default), ";" or "tab".',
         },
         maxSampleRows: {
           type: 'integer',
-          description: 'Sample rows to show (override; default depends on preset).',
+          description: 'Sample rows to show (override; default depends on preset/compression).',
         },
         maxColStats: {
           type: 'integer',
-          description: 'Columns with full stats (override; default depends on preset).',
+          description: 'Columns with full stats (override; default depends on preset/compression).',
         },
       },
       output: {
@@ -213,7 +272,12 @@ export function apply(ctx: Context): void {
         render: (_args, value) => [{ type: 'text', text: value }],
       },
       execute: async (args) => {
-        const opts = resolveDietOptions(getSettings())
+        const settings = getSettings()
+        const { opts, raw } = resolveCall(settings, args)
+        if (raw && typeof args.csv === 'string') {
+          const tokens = estimateTokens(args.csv)
+          return rawBaseline('csv', args.csv, args.csv.length, tokens)
+        }
         const result = dietCsv(args, opts)
         const out = JSON.stringify(result)
         const saved = computeSaved(result.tokens, out)
