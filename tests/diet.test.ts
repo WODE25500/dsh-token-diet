@@ -9,6 +9,7 @@ import {
   checkInput,
   parseCsv,
 } from '../src/index.js'
+import { PRESETS, resolveDietOptions, mergeToolArgs, DEFAULT_SETTINGS } from '../src/config.js'
 
 describe('diet-text', () => {
   it('summarizes small text without truncation', () => {
@@ -113,5 +114,42 @@ describe('exports', () => {
     expect(typeof dietCsv).toBe('function')
     expect(typeof estimateTokens).toBe('function')
     expect(typeof extractKeywords).toBe('function')
+  })
+})
+
+describe('config presets', () => {
+  it('has three distinct presets with different compression', () => {
+    const light = resolveDietOptions({ preset: 'light' })
+    const balanced = resolveDietOptions({ preset: 'balanced' })
+    const aggressive = resolveDietOptions({ preset: 'aggressive' })
+    expect(light.headChars).toBeGreaterThan(balanced.headChars)
+    expect(balanced.headChars).toBeGreaterThan(aggressive.headChars)
+    expect(light.maxSample).toBeGreaterThan(aggressive.maxSample)
+    expect(aggressive.maxSampleRows).toBeLessThan(light.maxSampleRows)
+  })
+
+  it('defaults to balanced preset', () => {
+    const opts = resolveDietOptions(DEFAULT_SETTINGS)
+    expect(opts.headChars).toBe(PRESETS.balanced.headChars)
+  })
+
+  it('settings overrides beat preset defaults', () => {
+    const opts = resolveDietOptions({ preset: 'aggressive', headChars: 1500 })
+    expect(opts.headChars).toBe(1500)
+    expect(opts.tailChars).toBe(PRESETS.aggressive.tailChars)
+  })
+
+  it('mergeToolArgs applies explicit tool args last', () => {
+    const opts = resolveDietOptions({ preset: 'balanced' })
+    const merged = mergeToolArgs(opts, { headChars: 42 }, ['headChars'])
+    expect(merged.headChars).toBe(42)
+    expect(merged.tailChars).toBe(opts.tailChars)
+  })
+
+  it('preset difference changes actual diet_text output', () => {
+    const big = '字'.repeat(2000)
+    const light = dietText({ text: big }, resolveDietOptions({ preset: 'light' }))
+    const aggressive = dietText({ text: big }, resolveDietOptions({ preset: 'aggressive' }))
+    expect(Array.from(light.head).length).toBeGreaterThan(Array.from(aggressive.head).length)
   })
 })
