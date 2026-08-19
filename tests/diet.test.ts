@@ -10,6 +10,7 @@ import {
   parseCsv,
 } from '../src/index.js'
 import { PRESETS, resolveDietOptions, mergeToolArgs, DEFAULT_SETTINGS } from '../src/config.js'
+import { computeSaved, formatSaved, SavingsCounter } from '../src/diet-feedback.js'
 
 describe('diet-text', () => {
   it('summarizes small text without truncation', () => {
@@ -151,5 +152,44 @@ describe('config presets', () => {
     const light = dietText({ text: big }, resolveDietOptions({ preset: 'light' }))
     const aggressive = dietText({ text: big }, resolveDietOptions({ preset: 'aggressive' }))
     expect(Array.from(light.head).length).toBeGreaterThan(Array.from(aggressive.head).length)
+  })
+})
+
+describe('saved-token feedback', () => {
+  it('computeSaved reports positive savings for big inputs', () => {
+    const bigText = Array.from({ length: 5000 }, (_, i) => `line ${i} some log content here`).join('\n')
+    const result = dietText({ text: bigText })
+    const out = JSON.stringify(result)
+    const saved = computeSaved(result.tokens, out)
+    expect(saved.originalTokens).toBe(result.tokens)
+    expect(saved.outputTokens).toBeLessThan(saved.originalTokens)
+    expect(saved.savedTokens).toBeGreaterThan(0)
+    expect(saved.savedPercent).toBeGreaterThan(0)
+    expect(saved.savedPercent).toBeLessThanOrEqual(100)
+  })
+
+  it('formatSaved renders a human-readable line', () => {
+    const s = computeSaved(10000, '{"a":1}')
+    const line = formatSaved(s)
+    expect(line).toContain('token')
+    expect(line).toContain('%')
+  })
+
+  it('SavingsCounter accumulates across calls', () => {
+    const c = new SavingsCounter()
+    c.record({ originalTokens: 1000, outputTokens: 100, savedTokens: 900, savedPercent: 90 })
+    c.record({ originalTokens: 2000, outputTokens: 200, savedTokens: 1800, savedPercent: 90 })
+    const snap = c.snapshot()
+    expect(snap.calls).toBe(2)
+    expect(snap.originalTotal).toBe(3000)
+    expect(snap.outputTotal).toBe(300)
+    expect(snap.savedTotal).toBe(2700)
+    expect(snap.savedPercent).toBe(90)
+  })
+
+  it('savedPercent never exceeds 100 even with tiny outputs', () => {
+    const s = computeSaved(10, 'x')
+    expect(s.savedPercent).toBeLessThanOrEqual(100)
+    expect(s.savedTokens).toBeGreaterThanOrEqual(0)
   })
 })
