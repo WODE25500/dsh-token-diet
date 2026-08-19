@@ -1,7 +1,7 @@
 {
   "name": "dsh-token-diet",
-  "version": "0.1.0",
-  "description": "DSH token-saving toolkit: proactively slim large text/JSON/CSV before they enter context (diet_text / diet_json / diet_csv / diet_estimate). Zero-dependency, pure functions.",
+  "version": "0.2.0",
+  "description": "DSH token-saving toolkit: proactively slim large text/JSON/CSV before they enter context (diet_text / diet_json / diet_csv / diet_estimate). Configurable compression presets (light/balanced/aggressive) + per-field overrides via settings. Zero-dependency pure functions.",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -18,8 +18,8 @@
     "prepack": "npm run build"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": ">=0.0.1-rc.1 <0.2.0",
-    "@deepseek-ai/cordis": "^4.0.1"
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc.1 <0.2.0"
   },
   "dsh": {
     "bundle": {
@@ -50,9 +50,11 @@
     "tool"
   ],
   "devDependencies": {
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7",
+    "@deepseek-ai/schemastery": "^3.18.1",
     "@types/node": "^26.0.0",
     "typescript": "^7.0.0",
-    "vitest": "^4.0.0",
-    "@deepseek-ai/dsh-tools": "^0.1.0-rc.7"
+    "vitest": "^4.0.0"
   }
 }
