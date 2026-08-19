@@ -21,6 +21,7 @@ import { dietText, estimateTokens, MAX_INPUT_CHARS } from './diet-text.js'
 import { dietJson } from './diet-json.js'
 import { dietCsv } from './diet-csv.js'
 import { computeSaved, SavingsCounter } from './diet-feedback.js'
+import { DEFAULT_SETTINGS, resolveDietOptions, applyCompression, clampCompression } from './config.js'
 
 export const name = 'dsh-token-diet/lite'
 export const inject = ['tools']
@@ -48,6 +49,10 @@ export function apply(ctx: Context): void {
           required: true,
           description: 'The content to summarize (up to 512KB).',
         },
+        compression: {
+          type: 'integer',
+          description: 'Manual compression ratio 0-99 (0 = no compression, return raw baseline; 99 = max compression).',
+        },
         limit: {
           type: 'integer',
           description: 'Budget override: for text = head chars; for json = max keys; for csv = sample rows.',
@@ -63,22 +68,40 @@ export function apply(ctx: Context): void {
         if (typeof content !== 'string') throw new Error('diet: content 必须是字符串')
         if (typeof action !== 'string') throw new Error('diet: action 必须是 text/json/csv')
 
+        // 手动压缩比例：compression=0 返回原文基线，1-99 插值
+        const comp = typeof args.compression === 'number' ? clampCompression(args.compression) : undefined
+        let opts = resolveDietOptions(DEFAULT_SETTINGS)
+        if (comp !== undefined && comp > 0) opts = applyCompression(comp, DEFAULT_SETTINGS, opts)
+
+        const raw = comp === 0
+        if (raw) {
+          const tokens = estimateTokens(content)
+          return JSON.stringify({
+            kind: action,
+            mode: 'raw',
+            note: 'compression=0：未压缩，返回原文基线',
+            chars: content.length,
+            tokens,
+            saved: { originalTokens: tokens, outputTokens: tokens, savedTokens: 0, savedPercent: 0 },
+          })
+        }
+
         if (action === 'text') {
-          const result = dietText({ text: content, headChars: args.limit })
+          const result = dietText({ text: content, headChars: args.limit }, opts)
           const out = JSON.stringify(result)
           const saved = computeSaved(result.tokens, out)
           liteSavingsCounter.record(saved)
           return JSON.stringify({ ...result, saved })
         }
         if (action === 'json') {
-          const result = dietJson({ json: content, maxKeys: args.limit })
+          const result = dietJson({ json: content, maxKeys: args.limit }, opts)
           const out = JSON.stringify(result)
           const saved = computeSaved(result.tokens, out)
           liteSavingsCounter.record(saved)
           return JSON.stringify({ ...result, saved })
         }
         if (action === 'csv') {
-          const result = dietCsv({ csv: content, maxSampleRows: args.limit })
+          const result = dietCsv({ csv: content, maxSampleRows: args.limit }, opts)
           const out = JSON.stringify(result)
           const saved = computeSaved(result.tokens, out)
           liteSavingsCounter.record(saved)
