@@ -1,12 +1,15 @@
 /**
- * dsh-token-diet 插件入口。
+ * dsh-token-diet 插件入口（完整版）。
  *
- * 注册 4 个"事前主动瘦身"工具：模型在把大内容塞进上下文之前先调用，
- * 得到结构保留摘要，从源头省 token：
+ * 注册 4 个"事前主动瘦身"工具 + 1 个累计统计工具：
  *   - diet_text     大文本 → 头/尾 + 行数 + 高频词
  *   - diet_json     大 JSON → key 骨架 + 类型/键数统计 + 抽样
  *   - diet_csv      大 CSV → 列类型/distinct/min/max/avg + 抽样行
  *   - diet_estimate 任意文本 → token 估算（决定要不要全文进上下文）
+ *   - diet_stats    本次进程累计节约统计（跨调用汇总）
+ *
+ * 每次瘦身调用都会附带 `saved` 反馈：原始 token → 瘦身后 token → 节约量与百分比，
+ * 让用户真实看到省了多少。
  *
  * 压缩比例可配置（settings 命名空间 `token-diet`）：
  *   - preset: light / balanced / aggressive 三档一键切换
@@ -14,9 +17,7 @@
  *     可逐项覆盖档位默认值
  *   优先级：工具调用显式参数 > settings 覆盖 > 档位默认
  *
- * 接入方式：在 cordis.yml 追加：
- *   - id: tool-token-diet
- *     name: 'dsh-token-diet'
+ * 轻量版入口：src/lite.ts（单个 diet 工具 + 反馈，无 settings 依赖）。
  *
  * 安全边界：纯函数、零依赖；输入上限 512KB；不读文件/不联网/不 eval。
  */
@@ -33,6 +34,7 @@ import {
   resolveDietOptions,
   type DietSettings,
 } from './config.js'
+import { computeSaved, SavingsCounter } from './diet-feedback.js'
 
 export {
   dietText,
@@ -45,6 +47,7 @@ export {
 export { dietJson } from './diet-json.js'
 export { dietCsv, parseCsv } from './diet-csv.js'
 export { PRESETS, resolveDietOptions, DEFAULT_SETTINGS, type DietSettings, type DietPreset } from './config.js'
+export { computeSaved, formatSaved, SavingsCounter, type SavedStat } from './diet-feedback.js'
 
 export const name = 'dsh-token-diet'
 export const inject = ['tools']
@@ -69,6 +72,9 @@ const DietSettingsSchema = Schema.object({
   maxColStats: Schema.number().min(1).max(30).description('CSV 摘要统计列数（覆盖档位）'),
 })
 
+/** 进程内累计节约统计（diet_stats 工具与 lite 版共享）。 */
+export const savingsCounter = new SavingsCounter()
+
 export function apply(ctx: Context): void {
   // settings 服务（可选）：存在则注册命名空间并读取档位/覆盖
   const getSettings = (): DietSettings => {
@@ -81,11 +87,9 @@ export function apply(ctx: Context): void {
     return DEFAULT_SETTINGS
   }
 
-  let settingsReady = false
   try {
     ctx.inject(['settings'], (settingsCtx) => {
       settingsCtx.settings.register(NS, DietSettingsSchema, { applies: 'live' })
-      settingsReady = true
     })
   } catch {
     /* settings 服务不可用，使用默认档位 */
@@ -96,9 +100,9 @@ export function apply(ctx: Context): void {
       name: 'diet_text',
       description:
         'Slim down a large text before putting it into context: returns head + tail + line count + ' +
-        'high-frequency keywords + token estimate, instead of the full text. Use when a file or log is ' +
-        'too big to read fully — inspect the skeleton first, then read only the relevant parts. ' +
-        'Compression is configurable in settings (preset: light/balanced/aggressive).',
+        'high-frequency keywords + token estimate + saved-token feedback, instead of the full text. ' +
+        'Use when a file or log is too big to read fully — inspect the skeleton first, then read only ' +
+        'the relevant parts. Compression is configurable in settings (preset: light/balanced/aggressive).',
       parameters: {
         text: {
           type: 'string',
@@ -124,7 +128,11 @@ export function apply(ctx: Context): void {
       },
       execute: async (args) => {
         const opts = resolveDietOptions(getSettings())
-        return JSON.stringify(dietText(args, opts))
+        const result = dietText(args, opts)
+        const out = JSON.stringify(result)
+        const saved = computeSaved(result.tokens, out)
+        savingsCounter.record(saved)
+        return JSON.stringify({ ...result, saved })
       },
       timeoutMs: 3000,
     }),
@@ -135,8 +143,8 @@ export function apply(ctx: Context): void {
       name: 'diet_json',
       description:
         'Slim down a large JSON document: returns the key skeleton with types, key counts, ' +
-        'array lengths, and sampled values — not the full payload. Use before putting a big API ' +
-        'response or config into context; then fetch specific fields by path. ' +
+        'array lengths, sampled values, and saved-token feedback — not the full payload. ' +
+        'Use before putting a big API response or config into context; then fetch specific fields by path. ' +
         'Compression is configurable in settings (preset: light/balanced/aggressive).',
       parameters: {
         json: {
@@ -163,7 +171,11 @@ export function apply(ctx: Context): void {
       },
       execute: async (args) => {
         const opts = resolveDietOptions(getSettings())
-        return JSON.stringify(dietJson(args, opts))
+        const result = dietJson(args, opts)
+        const out = JSON.stringify(result)
+        const saved = computeSaved(result.tokens, out)
+        savingsCounter.record(saved)
+        return JSON.stringify({ ...result, saved })
       },
       timeoutMs: 3000,
     }),
@@ -174,8 +186,8 @@ export function apply(ctx: Context): void {
       name: 'diet_csv',
       description:
         'Slim down a large CSV/TSV table: returns per-column stats (type, non-null count, distinct, ' +
-        'min/max/avg) plus a few sample rows — not the whole table. Use before loading a big data ' +
-        'file into context; then query subsets with the sqlite tool if available. ' +
+        'min/max/avg), a few sample rows, and saved-token feedback — not the whole table. ' +
+        'Use before loading a big data file into context; then query subsets with the sqlite tool if available. ' +
         'Compression is configurable in settings (preset: light/balanced/aggressive).',
       parameters: {
         csv: {
@@ -202,7 +214,11 @@ export function apply(ctx: Context): void {
       },
       execute: async (args) => {
         const opts = resolveDietOptions(getSettings())
-        return JSON.stringify(dietCsv(args, opts))
+        const result = dietCsv(args, opts)
+        const out = JSON.stringify(result)
+        const saved = computeSaved(result.tokens, out)
+        savingsCounter.record(saved)
+        return JSON.stringify({ ...result, saved })
       },
       timeoutMs: 3000,
     }),
@@ -236,6 +252,23 @@ export function apply(ctx: Context): void {
         const verdict = tokens < 500 ? '可直接全文进上下文' : tokens < 3000 ? '建议先用 diet_text/diet_json/diet_csv 瘦身' : '必须瘦身，否则将占用大量上下文'
         return JSON.stringify({ chars, tokens, verdict })
       },
+      timeoutMs: 2000,
+    }),
+  )
+
+  ctx.tools.register(
+    defineTool({
+      name: 'diet_stats',
+      description:
+        'Show cumulative token savings of this process: how many diet_* calls ran, total original ' +
+        'tokens, total output tokens, and total tokens saved (absolute + percent). ' +
+        'Call this to report how much context/token budget the session has saved so far.',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      execute: async () => JSON.stringify(savingsCounter.snapshot()),
       timeoutMs: 2000,
     }),
   )
