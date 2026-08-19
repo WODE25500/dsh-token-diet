@@ -77,12 +77,28 @@ export function extractKeywords(text: string, max: number): string[] {
     .map(([w]) => w)
 }
 
-/** 大文本 → 结构摘要。 */
-export function dietText(args: DietTextArgs): DietTextResult {
+/** 大文本 → 结构摘要。
+ * 优先级：args 显式参数 > base（settings 档位/覆盖）> 函数内默认值。 */
+export function dietText(
+  args: DietTextArgs,
+  base: Partial<Pick<DietTextArgs, 'headChars' | 'tailChars' | 'maxKeywords'>> = {},
+): DietTextResult {
   const text = checkInput(args.text)
-  const headChars = typeof args.headChars === 'number' ? Math.max(0, Math.min(args.headChars, 4000)) : 800
-  const tailChars = typeof args.tailChars === 'number' ? Math.max(0, Math.min(args.tailChars, 2000)) : 300
-  const maxKeywords = typeof args.maxKeywords === 'number' ? Math.max(1, Math.min(args.maxKeywords, 30)) : 10
+  const headChars = typeof args.headChars === 'number'
+    ? Math.max(0, Math.min(args.headChars, 4000))
+    : typeof base.headChars === 'number'
+      ? Math.max(0, Math.min(base.headChars, 4000))
+      : 800
+  const tailChars = typeof args.tailChars === 'number'
+    ? Math.max(0, Math.min(args.tailChars, 2000))
+    : typeof base.tailChars === 'number'
+      ? Math.max(0, Math.min(base.tailChars, 2000))
+      : 300
+  const maxKeywords = typeof args.maxKeywords === 'number'
+    ? Math.max(1, Math.min(args.maxKeywords, 30))
+    : typeof base.maxKeywords === 'number'
+      ? Math.max(1, Math.min(base.maxKeywords, 30))
+      : 10
 
   const chars = Array.from(text).length
   const truncated = chars > headChars + tailChars
