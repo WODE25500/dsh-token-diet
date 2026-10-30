@@ -1,6 +1,6 @@
 {
   "name": "dsh-token-diet",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "DSH token-saving toolkit: proactively slim large text/JSON/CSV before they enter context (diet_text / diet_json / diet_csv / diet_estimate / diet_stats). Configurable: presets (light/balanced/aggressive), per-field overrides, and a manual compression ratio 0-99 with real saved-token feedback. Lite entry (/lite) ships a single diet tool.",
   "type": "module",
   "main": "lib/index.js",
@@ -15,11 +15,12 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run tests",
     "check": "npm run typecheck && npm test && npm run build",
+    "prepare": "npm run build",
     "prepack": "npm run build"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-tools": ">=0.0.1-rc.1 <0.2.0"
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0"
   },
   "dsh": {
     "bundle": {
